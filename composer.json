@@ -1,0 +1,39 @@
+{
+    "name": "wire-elements/livewire-strict",
+    "description": "Add strict mode to Livewire.",
+    "require": {
+        "php": "^8.1"
+    },
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "WireElements\\LivewireStrict\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Philo Hermans",
+            "email": "me@philo.dev"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "WireElements\\LivewireStrict\\LivewireStrictServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "require-dev": {
+        "phpunit/phpunit": "^10.4",
+        "laravel/framework": "^10.15.0|^11.0",
+        "orchestra/testbench": "^8.21.0|^9.1",
+        "livewire/livewire": "^3.5"
+    }
+}
