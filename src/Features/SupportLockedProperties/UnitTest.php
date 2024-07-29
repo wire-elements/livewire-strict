@@ -9,20 +9,13 @@ use WireElements\LivewireStrict\LivewireStrict;
 
 class UnitTest extends \Tests\TestCase
 {
-    public function tearDown(): void
-    {
-        //SupportLockedProperties::$locked = false;
-
-        parent::tearDown();
-    }
-
     public function test_cant_update_globally_locked_property()
     {
         $this->expectExceptionMessage(
             'Cannot update locked property: [count]'
         );
 
-        LivewireStrict::lockProperties();
+        LivewireStrict::lockProperties(components: 'WireElements\*');
 
         Livewire::test(new class extends TestComponent
         {
@@ -61,6 +54,65 @@ class UnitTest extends \Tests\TestCase
             ->assertSetStrict('count', 1)
             ->set('count', 2);
     }
+
+    public function test_only_enabled_for_specific_namespace()
+    {
+        $this->expectExceptionMessage(
+            'Cannot update locked property: [count]'
+        );
+
+        LivewireStrict::lockProperties(components: 'WireElements\*');
+
+        Livewire::test(new class extends SpecificComponent
+        {
+            public $count = 1;
+
+            public function increment()
+            {
+                $this->count++;
+            }
+        })
+            ->assertSetStrict('count', 1)
+            ->set('count', 2);
+    }
+
+    public function test_only_enabled_for_specific_components()
+    {
+        $this->expectExceptionMessage(
+            'Cannot update locked property: [count]'
+        );
+
+        LivewireStrict::lockProperties(components: 'WireElements\LivewireStrict\Features\SupportLockedProperties\SpecificComponent*');
+
+        Livewire::test(new class extends SpecificComponent
+        {
+            public $count = 1;
+
+            public function increment()
+            {
+                $this->count++;
+            }
+        })
+            ->assertSetStrict('count', 1)
+            ->set('count', 2);
+    }
+
+    public function test_it_ignores_other_components()
+    {
+        LivewireStrict::lockProperties(components: 'App/*');
+
+        Livewire::test(new class extends SpecificComponent
+        {
+            public $count = 1;
+
+            public function increment()
+            {
+                $this->count++;
+            }
+        })
+            ->assertSetStrict('count', 1)
+            ->set('count', 2);
+    }
 }
 
 class TestComponent extends Component
@@ -69,4 +121,8 @@ class TestComponent extends Component
     {
         return '<div></div>';
     }
+}
+
+class SpecificComponent extends TestComponent
+{
 }
