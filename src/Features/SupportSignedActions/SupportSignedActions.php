@@ -5,9 +5,12 @@ namespace WireElements\LivewireStrict\Features\SupportSignedActions;
 use Livewire\ComponentHook;
 use Illuminate\Support\Carbon;
 use WireElements\LivewireStrict\Attributes\Signed;
+use WireElements\LivewireStrict\Features\Concerns\MatchesComponents;
 
 class SupportSignedActions extends ComponentHook
 {
+    use MatchesComponents;
+
     public static bool $enabled = false;
 
     public static array $components = [];
@@ -53,21 +56,6 @@ class SupportSignedActions extends ComponentHook
         }
     }
 
-    protected function checkIsRequired(): bool
-    {
-        foreach (self::$components as $component) {
-            if (str($component)->contains('*') && str($this->component::class)->is($component)) {
-                return true;
-            }
-
-            if ($component === $this->component::class) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     protected function methodIsSigned(string $method): bool
     {
         if (! method_exists($this->component, $method)) {
@@ -95,7 +83,8 @@ class SupportSignedActions extends ComponentHook
             $signed = $attributes[0]->newInstance();
 
             if ($signed->ttl !== null) {
-                return $signed->ttl;
+                // ttl: 0 means "no expiration, even if global TTL is set"
+                return $signed->ttl === 0 ? null : $signed->ttl;
             }
         }
 

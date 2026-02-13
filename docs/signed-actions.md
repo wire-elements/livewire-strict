@@ -153,7 +153,7 @@ LivewireStrict::signedActions(
 - Financial operations: `refund($orderId, $amount)`
 - Any action where a tampered parameter leads to unauthorized behavior
 
-**You don't need `#[Signed]` for:**
+**You don't need `#[Signed]` for (but it still works if you do):**
 - Methods with no parameters: `loadMore()`, `refresh()`
 - Methods where parameters come from locked server-side state
 - Methods that re-validate authorization internally regardless of input

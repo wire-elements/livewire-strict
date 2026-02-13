@@ -6,9 +6,12 @@ use Livewire\ComponentHook;
 use Livewire\Features\SupportAttributes\AttributeLevel;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use WireElements\LivewireStrict\Attributes\Unlocked;
+use WireElements\LivewireStrict\Features\Concerns\MatchesComponents;
 
 class SupportLockedProperties extends ComponentHook
 {
+    use MatchesComponents;
+
     public static bool $locked = false;
 
     public static array $components = [];
@@ -19,19 +22,7 @@ class SupportLockedProperties extends ComponentHook
             return;
         }
 
-        $checkIsRequired = false;
-
-        foreach (self::$components as $component) {
-            if (str($component)->contains('*') && str($this->component::class)->is($component)) {
-                $checkIsRequired = true;
-            }
-
-            if ($component === $this->component::class) {
-                $checkIsRequired = true;
-            }
-        }
-
-        if (! $checkIsRequired) {
+        if (! $this->checkIsRequired()) {
             return;
         }
 

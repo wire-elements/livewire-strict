@@ -405,6 +405,58 @@ class UnitTest extends \Tests\TestCase
         $this->expectException(ExpiredSignedActionException::class);
         $component->call('__callSigned', $payload);
     }
+
+    public function test_per_method_ttl_zero_disables_expiration_even_with_global_ttl()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: 60);
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed(ttl: 0)]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
+        $this->assertNull($ttl, 'ttl: 0 should resolve to null (no expiration)');
+
+        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
+            $ttl,
+            $component->instance()->getId(),
+            'delete',
+            5
+        );
+
+        // Travel far into the future — should still work because ttl: 0 means no expiration
+        $this->travel(9999)->seconds();
+
+        $component->call('__callSigned', $payload)
+            ->assertSet('result', 5);
+    }
+
+    public function test_signed_method_with_no_parameters_works()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function archive()
+            {
+                $this->result = 'archived';
+            }
+        });
+
+        $payload = SupportSignedActions::generateSignedPayload(
+            $component->instance()->getId(),
+            'archive'
+        );
+
+        $component->call('__callSigned', $payload)
+            ->assertSet('result', 'archived');
+    }
 }
 
 class TestSignedComponent extends Component
