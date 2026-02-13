@@ -34,6 +34,6 @@
         "phpunit/phpunit": "^10.4",
         "laravel/framework": "^10.15.0|^11.0",
         "orchestra/testbench": "^8.21.0|^9.1",
-        "livewire/livewire": "^3.5"
+        "livewire/livewire": "^3.5|^4.0"
     }
 }
