@@ -1,0 +1,158 @@
+<?php
+
+namespace WireElements\LivewireStrict\Features\SupportSignedActions;
+
+use Livewire\ComponentHook;
+use Illuminate\Support\Carbon;
+use WireElements\LivewireStrict\Attributes\Signed;
+
+class SupportSignedActions extends ComponentHook
+{
+    public static bool $enabled = false;
+
+    public static array $components = [];
+
+    /**
+     * Time-to-live in seconds for signed payloads. Null means no expiration.
+     */
+    public static ?int $ttl = null;
+
+    public function call($method, $params, $returnEarly, $metadata, $componentContext)
+    {
+        if (self::$enabled === false) {
+            return;
+        }
+
+        if (! $this->checkIsRequired()) {
+            return;
+        }
+
+        // Handle signed action calls
+        if ($method === '__callSigned') {
+            // Guard: ensure the component doesn't have an actual __callSigned method
+            if (method_exists($this->component, '__callSigned')) {
+                return;
+            }
+
+            $decoded = $this->verifyAndDecode($params[0]);
+            $result = $this->component->{$decoded['method']}(...$decoded['params']);
+            $returnEarly($result);
+
+            return;
+        }
+
+        // Block direct calls to #[Signed] methods
+        if ($this->methodIsSigned($method)) {
+            throw new InvalidSignedActionException($method);
+        }
+    }
+
+    protected function checkIsRequired(): bool
+    {
+        foreach (self::$components as $component) {
+            if (str($component)->contains('*') && str($this->component::class)->is($component)) {
+                return true;
+            }
+
+            if ($component === $this->component::class) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function methodIsSigned(string $method): bool
+    {
+        if (! method_exists($this->component, $method)) {
+            return false;
+        }
+
+        $reflection = new \ReflectionMethod($this->component, $method);
+
+        return ! empty($reflection->getAttributes(Signed::class));
+    }
+
+    protected function verifyAndDecode(string $encodedPayload): array
+    {
+        $decoded = json_decode(base64_decode($encodedPayload, true), true);
+
+        if (! $decoded || ! isset($decoded['sig'], $decoded['method'], $decoded['params'], $decoded['id'])) {
+            throw new InvalidSignedActionException;
+        }
+
+        // Build the same payload structure used during signing
+        $payloadData = [
+            'id' => $decoded['id'],
+            'method' => $decoded['method'],
+            'params' => $decoded['params'],
+        ];
+
+        // Include expiry in HMAC if it was part of the signed payload
+        if (isset($decoded['exp'])) {
+            $payloadData['exp'] = $decoded['exp'];
+        }
+
+        $payload = json_encode($payloadData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $expectedSig = hash_hmac('sha256', $payload, config('app.key'));
+
+        if (! hash_equals($expectedSig, $decoded['sig'])) {
+            throw new InvalidSignedActionException($decoded['method']);
+        }
+
+        // Verify payload has not expired
+        if (isset($decoded['exp']) && Carbon::now()->timestamp > $decoded['exp']) {
+            throw new ExpiredSignedActionException($decoded['method']);
+        }
+
+        // Verify component ID matches
+        if ($decoded['id'] !== $this->component->getId()) {
+            throw new InvalidSignedActionException($decoded['method']);
+        }
+
+        // Verify target method requires signing
+        if (! $this->methodIsSigned($decoded['method'])) {
+            throw new InvalidSignedActionException($decoded['method']);
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * Generate a signed payload string for use in testing or programmatic calls.
+     *
+     * @param ?int $ttl Override the default TTL in seconds. Null uses the static $ttl.
+     */
+    public static function generateSignedPayload(string $componentId, string $method, mixed ...$params): string
+    {
+        $payloadData = [
+            'id' => $componentId,
+            'method' => $method,
+            'params' => $params,
+        ];
+
+        if (static::$ttl !== null) {
+            $payloadData['exp'] = Carbon::now()->timestamp + static::$ttl;
+        }
+
+        $payload = json_encode($payloadData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        $signature = hash_hmac('sha256', $payload, config('app.key'));
+
+        return base64_encode(json_encode(array_merge($payloadData, [
+            'sig' => $signature,
+        ])));
+    }
+
+    /**
+     * Generate a signed action string for use in Blade templates.
+     * Used by the @livewireAction Blade directive.
+     */
+    public static function generateSignedAction(string $componentId, string $method, mixed ...$params): string
+    {
+        $payload = self::generateSignedPayload($componentId, $method, ...$params);
+
+        return "__callSigned('{$payload}')";
+    }
+}
