@@ -14,11 +14,18 @@ class LivewireStrict
         SupportLockedProperties::$components = Arr::wrap($components);
     }
 
+    /**
+     * Enable signed actions for the given components.
+     *
+     * @param  bool  $shouldSignActions
+     * @param  string|string[]  $components  Component class or wildcard pattern(s).
+     * @param  int|null  $ttl  Seconds until payloads expire. Use 0 or Signed::NO_EXPIRATION to disable expiration.
+     */
     public static function signedActions($shouldSignActions = true, $components = ['App\Livewire\*'], $ttl = null)
     {
         SupportSignedActions::$enabled = $shouldSignActions;
         SupportSignedActions::$components = Arr::wrap($components);
-        SupportSignedActions::$ttl = $ttl;
+        SupportSignedActions::$ttl = SupportSignedActions::normalizeTtl($ttl);
     }
 
     public static function enableAll($condition = true)

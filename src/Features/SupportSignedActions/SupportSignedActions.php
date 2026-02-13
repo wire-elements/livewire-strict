@@ -6,10 +6,12 @@ use Livewire\ComponentHook;
 use Illuminate\Support\Carbon;
 use WireElements\LivewireStrict\Attributes\Signed;
 use WireElements\LivewireStrict\Features\Concerns\MatchesComponents;
+use WireElements\LivewireStrict\Features\Concerns\NormalizesTtl;
 
 class SupportSignedActions extends ComponentHook
 {
     use MatchesComponents;
+    use NormalizesTtl;
 
     public static bool $enabled = false;
 
@@ -83,8 +85,7 @@ class SupportSignedActions extends ComponentHook
             $signed = $attributes[0]->newInstance();
 
             if ($signed->ttl !== null) {
-                // ttl: 0 means "no expiration, even if global TTL is set"
-                return $signed->ttl === 0 ? null : $signed->ttl;
+                return static::normalizeTtl($signed->ttl);
             }
         }
 
@@ -150,6 +151,8 @@ class SupportSignedActions extends ComponentHook
      */
     public static function generateSignedPayloadWithTtl(?int $ttl, string $componentId, string $method, mixed ...$params): string
     {
+        $ttl = static::normalizeTtl($ttl);
+
         $payloadData = [
             'id' => $componentId,
             'method' => $method,

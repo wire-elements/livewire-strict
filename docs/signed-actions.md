@@ -101,6 +101,9 @@ LivewireStrict::signedActions(ttl: 300);
 
 // No expiration (default)
 LivewireStrict::signedActions();
+
+// Explicitly no expiration
+LivewireStrict::signedActions(ttl: Signed::NO_EXPIRATION);
 ```
 
 With a TTL, payloads include a signed timestamp. After expiration, the action is rejected with an `ExpiredSignedActionException`. The timestamp is part of the HMAC, so attackers cannot extend it.
@@ -123,7 +126,7 @@ class OrderManager extends Component
     public function refund(int $orderId, int $amount) { ... }
 
     // No expiration, even if global TTL is set
-    #[Signed(ttl: 0)]
+    #[Signed(ttl: Signed::NO_EXPIRATION)]
     public function viewDetails(int $orderId) { ... }
 }
 ```

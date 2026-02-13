@@ -457,6 +457,48 @@ class UnitTest extends \Tests\TestCase
         $component->call('__callSigned', $payload)
             ->assertSet('result', 'archived');
     }
+
+    public function test_negative_global_ttl_is_rejected()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('TTL must be a non-negative integer, got: -5');
+
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: -5);
+    }
+
+    public function test_negative_per_method_ttl_is_rejected()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('TTL must be a non-negative integer, got: -10');
+
+        new Signed(ttl: -10);
+    }
+
+    public function test_global_ttl_zero_disables_expiration()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: 0);
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = SupportSignedActions::generateSignedPayload(
+            $component->instance()->getId(),
+            'delete',
+            5
+        );
+
+        // Travel far into the future — ttl: 0 means no expiration
+        $this->travel(9999)->seconds();
+
+        $component->call('__callSigned', $payload)
+            ->assertSet('result', 5);
+    }
 }
 
 class TestSignedComponent extends Component
