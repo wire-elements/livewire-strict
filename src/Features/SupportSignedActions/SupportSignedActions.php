@@ -31,7 +31,13 @@ class SupportSignedActions extends ComponentHook
         if ($method === '__callSigned') {
             // Guard: ensure the component doesn't have an actual __callSigned method
             if (method_exists($this->component, '__callSigned')) {
-                return;
+                throw new \LogicException(
+                    'Component [' . $this->component::class . '] defines a __callSigned method, which collides with the internal signed-action hook.'
+                );
+            }
+
+            if (! isset($params[0]) || ! is_string($params[0])) {
+                throw new InvalidSignedActionException('__callSigned');
             }
 
             $decoded = $this->verifyAndDecode($params[0]);
@@ -70,7 +76,30 @@ class SupportSignedActions extends ComponentHook
 
         $reflection = new \ReflectionMethod($this->component, $method);
 
-        return ! empty($reflection->getAttributes(Signed::class));
+        return $reflection->isPublic() && ! $reflection->isStatic() && ! empty($reflection->getAttributes(Signed::class));
+    }
+
+    /**
+     * Get the TTL for a specific method. Per-method TTL overrides the global TTL.
+     */
+    public static function getMethodTtl(object $component, string $method): ?int
+    {
+        if (! method_exists($component, $method)) {
+            return static::$ttl;
+        }
+
+        $reflection = new \ReflectionMethod($component, $method);
+        $attributes = $reflection->getAttributes(Signed::class);
+
+        if (! empty($attributes)) {
+            $signed = $attributes[0]->newInstance();
+
+            if ($signed->ttl !== null) {
+                return $signed->ttl;
+            }
+        }
+
+        return static::$ttl;
     }
 
     protected function verifyAndDecode(string $encodedPayload): array
@@ -121,10 +150,16 @@ class SupportSignedActions extends ComponentHook
 
     /**
      * Generate a signed payload string for use in testing or programmatic calls.
-     *
-     * @param ?int $ttl Override the default TTL in seconds. Null uses the static $ttl.
      */
     public static function generateSignedPayload(string $componentId, string $method, mixed ...$params): string
+    {
+        return static::generateSignedPayloadWithTtl(static::$ttl, $componentId, $method, ...$params);
+    }
+
+    /**
+     * Generate a signed payload with an explicit TTL.
+     */
+    public static function generateSignedPayloadWithTtl(?int $ttl, string $componentId, string $method, mixed ...$params): string
     {
         $payloadData = [
             'id' => $componentId,
@@ -132,8 +167,8 @@ class SupportSignedActions extends ComponentHook
             'params' => $params,
         ];
 
-        if (static::$ttl !== null) {
-            $payloadData['exp'] = Carbon::now()->timestamp + static::$ttl;
+        if ($ttl !== null) {
+            $payloadData['exp'] = Carbon::now()->timestamp + $ttl;
         }
 
         $payload = json_encode($payloadData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -152,6 +187,18 @@ class SupportSignedActions extends ComponentHook
     public static function generateSignedAction(string $componentId, string $method, mixed ...$params): string
     {
         $payload = self::generateSignedPayload($componentId, $method, ...$params);
+
+        return "__callSigned('{$payload}')";
+    }
+
+    /**
+     * Generate a signed action string with per-method TTL resolution.
+     * Used internally when the component instance is available.
+     */
+    public static function generateSignedActionForComponent(object $component, string $method, mixed ...$params): string
+    {
+        $ttl = static::getMethodTtl($component, $method);
+        $payload = static::generateSignedPayloadWithTtl($ttl, $component->getId(), $method, ...$params);
 
         return "__callSigned('{$payload}')";
     }

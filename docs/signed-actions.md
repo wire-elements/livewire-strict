@@ -105,6 +105,31 @@ LivewireStrict::signedActions();
 
 With a TTL, payloads include a signed timestamp. After expiration, the action is rejected with an `ExpiredSignedActionException`. The timestamp is part of the HMAC, so attackers cannot extend it.
 
+### Per-method TTL
+
+You can override the global TTL on individual methods using the `ttl` parameter on `#[Signed]`:
+
+```php
+use WireElements\LivewireStrict\Attributes\Signed;
+
+class OrderManager extends Component
+{
+    // Uses the global TTL
+    #[Signed]
+    public function archive(int $orderId) { ... }
+
+    // Stricter: expires after 30 seconds
+    #[Signed(ttl: 30)]
+    public function refund(int $orderId, int $amount) { ... }
+
+    // No expiration, even if global TTL is set
+    #[Signed(ttl: 0)]
+    public function viewDetails(int $orderId) { ... }
+}
+```
+
+Per-method TTL takes precedence over the global TTL. If a method has no `ttl` parameter, the global TTL is used.
+
 **Choosing a TTL:** Consider how long a page stays open before a user interacts. For admin panels, 5-15 minutes is reasonable. For long-lived dashboards, use a longer TTL or disable expiration.
 
 ## Scoping

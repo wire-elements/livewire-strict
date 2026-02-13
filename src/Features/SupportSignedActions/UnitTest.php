@@ -321,6 +321,90 @@ class UnitTest extends \Tests\TestCase
 
         $component->call('__callSigned', $tamperedPayload);
     }
+
+    public function test_per_method_ttl_overrides_global_ttl()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: 300);
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed(ttl: 60)]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
+        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
+            $ttl,
+            $component->instance()->getId(),
+            'delete',
+            5
+        );
+
+        // 61 seconds - past per-method TTL of 60, but within global TTL of 300
+        $this->travel(61)->seconds();
+
+        $this->expectException(ExpiredSignedActionException::class);
+        $component->call('__callSigned', $payload);
+    }
+
+    public function test_per_method_ttl_succeeds_within_window()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: 300);
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed(ttl: 60)]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
+        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
+            $ttl,
+            $component->instance()->getId(),
+            'delete',
+            5
+        );
+
+        // 30 seconds - within per-method TTL of 60
+        $this->travel(30)->seconds();
+
+        $component->call('__callSigned', $payload)
+            ->assertSet('result', 5);
+    }
+
+    public function test_method_without_per_method_ttl_uses_global()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: 120);
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
+        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
+            $ttl,
+            $component->instance()->getId(),
+            'delete',
+            5
+        );
+
+        // 121 seconds - past global TTL of 120
+        $this->travel(121)->seconds();
+
+        $this->expectException(ExpiredSignedActionException::class);
+        $component->call('__callSigned', $payload);
+    }
 }
 
 class TestSignedComponent extends Component
