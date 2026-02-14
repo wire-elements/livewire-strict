@@ -39,11 +39,10 @@ class Signed extends Attribute
     {
         $signed = $component->getAttributes()
             ->whereInstanceOf(self::class)
-            ->filter(fn (self $attribute) => $attribute->getLevel() === AttributeLevel::METHOD)
-            ->filter(fn (self $attribute) => $attribute->getName() === $method)
+            ->filter(fn (self $attribute) => $attribute->getLevel() === AttributeLevel::METHOD && $attribute->getName() === $method)
             ->first();
 
-        if ($signed && $signed->ttl !== null) {
+        if ($signed?->ttl !== null) {
             return $signed->ttl;
         }
 

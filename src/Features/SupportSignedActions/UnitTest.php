@@ -520,6 +520,22 @@ class UnitTest extends \Tests\TestCase
         })->call('__callSigned', 12345);
     }
 
+    public function test_rejects_callSigned_with_no_params()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        })->call('__callSigned');
+    }
+
     public function test_valid_payload_can_be_replayed()
     {
         LivewireStrict::signedActions(components: 'WireElements\*');
@@ -924,7 +940,7 @@ class UnitTest extends \Tests\TestCase
             // expected
         }
 
-        // Disabling at runtime bypasses all protection — flag for audit
+        // Disabling at runtime bypasses all protection - flag for audit
         SupportSignedActions::$enabled = false;
 
         $component

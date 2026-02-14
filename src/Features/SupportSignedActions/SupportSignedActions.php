@@ -39,7 +39,7 @@ class SupportSignedActions extends ComponentHook
         }
     }
 
-    protected function handleSignedCall(array $params, callable $returnEarly): void
+    private function handleSignedCall(array $params, callable $returnEarly): void
     {
         throw_if(
             method_exists($this->component, '__callSigned'),
@@ -66,13 +66,12 @@ class SupportSignedActions extends ComponentHook
         );
     }
 
-    protected function methodIsSigned(string $method): bool
+    private function methodIsSigned(string $method): bool
     {
         return $this->component
             ->getAttributes()
             ->whereInstanceOf(Signed::class)
-            ->filter(fn (Signed $attribute) => $attribute->getLevel() === AttributeLevel::METHOD)
-            ->filter(fn (Signed $attribute) => $attribute->getName() === $method)
+            ->filter(fn (Signed $attribute) => $attribute->getLevel() === AttributeLevel::METHOD && $attribute->getName() === $method)
             ->isNotEmpty();
     }
 }

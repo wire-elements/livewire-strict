@@ -29,7 +29,7 @@ class LivewireStrict
     {
         Signed::validateTtl($ttl);
 
-        SupportSignedActions::$ttl = $ttl ?: null;
+        SupportSignedActions::$ttl = $ttl > 0 ? $ttl : null;
         SupportSignedActions::$enabled = $shouldSignActions;
         SupportSignedActions::$components = Arr::wrap($components);
     }

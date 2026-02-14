@@ -21,6 +21,7 @@ class LivewireStrictServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // $__livewire is the component instance injected by Livewire's Blade rendering.
         Blade::directive('livewireAction', function ($expression) {
             return "<?php echo \\WireElements\\LivewireStrict\\Features\\SupportSignedActions\\SignedPayload::forComponent(\$__livewire, $expression)->toAction(); ?>";
         });

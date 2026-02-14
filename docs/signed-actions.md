@@ -78,7 +78,7 @@ Replace inline method calls with the `@livewireAction` directive:
 
 1. **At render time**, `@livewireAction` generates an HMAC-SHA256 signature over the method name, parameters, and component ID using a purpose-specific key derived from your `APP_KEY` (domain-separated so that other subsystems sharing the same key cannot produce cross-valid signatures)
 2. The signed payload is encoded as a base64 string and rendered as `__callSigned('eyJ...')`
-3. **When clicked**, the `SupportSignedActions` hook intercepts the call, verifies the HMAC, checks the component ID matches, and only then executes the method
+3. **When clicked**, the `SupportSignedActions` hook intercepts the call and verifies in sequence: payload structure → field types → HMAC signature → expiry (if TTL is set) → component ID match. Only then is the method executed
 4. Direct calls to `#[Signed]` methods (e.g., `$wire.call('delete', 5)`) are **blocked**
 
 ### What's protected
@@ -87,6 +87,7 @@ Replace inline method calls with the `@livewireAction` directive:
 |--------|--------|
 | Change parameters in DOM | ❌ HMAC verification fails |
 | Call signed method directly via JS | ❌ Blocked - must use signed payload |
+| Call `__callSigned` with no payload | ❌ Blocked - payload parameter required |
 | Replay payload on different component | ❌ Component ID mismatch |
 | Tamper with expiration timestamp | ❌ HMAC verification fails |
 | Use expired payload | ❌ `ExpiredSignedActionException` thrown |
