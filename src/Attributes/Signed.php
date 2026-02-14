@@ -3,21 +3,50 @@
 namespace WireElements\LivewireStrict\Attributes;
 
 use Livewire\Features\SupportAttributes\Attribute;
-use WireElements\LivewireStrict\Features\Concerns\NormalizesTtl;
+use Livewire\Features\SupportAttributes\AttributeLevel;
 
 #[\Attribute(\Attribute::TARGET_METHOD)]
 class Signed extends Attribute
 {
-    use NormalizesTtl;
-
     /**
-     * Explicitly disable expiration, even if a global TTL is set.
+     * @param  int|null  $ttl  Seconds until the signed payload expires.
+     *                         - null: inherit the global TTL (default)
+     *                         - 0: never expire, even if a global TTL is set
+     *                         - positive int: override the global TTL with this value
      */
-    public const NO_EXPIRATION = 0;
-
     public function __construct(
         public ?int $ttl = null,
     ) {
-        static::normalizeTtl($ttl);
+        self::validateTtl($this->ttl);
+    }
+
+    /**
+     * Validate that a TTL value is non-negative.
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function validateTtl(?int $ttl): void
+    {
+        if ($ttl !== null && $ttl < 0) {
+            throw new \InvalidArgumentException("TTL must be a non-negative integer, got: {$ttl}");
+        }
+    }
+
+    /**
+     * Resolve the effective TTL for a method, considering per-method overrides.
+     */
+    public static function resolveMethodTtl(object $component, string $method, ?int $globalTtl): ?int
+    {
+        $signed = $component->getAttributes()
+            ->whereInstanceOf(self::class)
+            ->filter(fn (self $attribute) => $attribute->getLevel() === AttributeLevel::METHOD)
+            ->filter(fn (self $attribute) => $attribute->getName() === $method)
+            ->first();
+
+        if ($signed && $signed->ttl !== null) {
+            return $signed->ttl;
+        }
+
+        return $globalTtl;
     }
 }

@@ -3,6 +3,7 @@
 namespace WireElements\LivewireStrict;
 
 use Illuminate\Support\Arr;
+use WireElements\LivewireStrict\Attributes\Signed;
 use WireElements\LivewireStrict\Features\SupportLockedProperties\SupportLockedProperties;
 use WireElements\LivewireStrict\Features\SupportSignedActions\SupportSignedActions;
 
@@ -19,13 +20,18 @@ class LivewireStrict
      *
      * @param  bool  $shouldSignActions
      * @param  string|string[]  $components  Component class or wildcard pattern(s).
-     * @param  int|null  $ttl  Seconds until payloads expire. Use 0 or Signed::NO_EXPIRATION to disable expiration.
+     * @param  int|null  $ttl  Seconds until payloads expire.
+     *                         - null: no expiration (default)
+     *                         - 0: no expiration (same as null)
+     *                         - positive int: payloads expire after this many seconds
      */
     public static function signedActions($shouldSignActions = true, $components = ['App\Livewire\*'], $ttl = null)
     {
+        Signed::validateTtl($ttl);
+
+        SupportSignedActions::$ttl = $ttl ?: null;
         SupportSignedActions::$enabled = $shouldSignActions;
         SupportSignedActions::$components = Arr::wrap($components);
-        SupportSignedActions::$ttl = SupportSignedActions::normalizeTtl($ttl);
     }
 
     public static function enableAll($condition = true)

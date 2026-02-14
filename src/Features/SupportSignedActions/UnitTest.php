@@ -5,6 +5,8 @@ namespace WireElements\LivewireStrict\Features\SupportSignedActions;
 use Livewire\Component;
 use Livewire\Livewire;
 use WireElements\LivewireStrict\Attributes\Signed;
+use WireElements\LivewireStrict\Features\SupportSignedActions\Exceptions\ExpiredSignedActionException;
+use WireElements\LivewireStrict\Features\SupportSignedActions\Exceptions\InvalidSignedActionException;
 use WireElements\LivewireStrict\LivewireStrict;
 
 class UnitTest extends \Tests\TestCase
@@ -12,12 +14,17 @@ class UnitTest extends \Tests\TestCase
     public function setUp(): void
     {
         parent::setUp();
+
         SupportSignedActions::$enabled = false;
         SupportSignedActions::$components = [];
         SupportSignedActions::$ttl = null;
     }
 
-    public function test_cant_call_signed_method_directly()
+    // ──────────────────────────────────────────────────────────
+    //  Core: signed methods cannot be called directly
+    // ──────────────────────────────────────────────────────────
+
+    public function test_blocks_direct_call_to_signed_method()
     {
         $this->expectException(InvalidSignedActionException::class);
         $this->expectExceptionMessage('Cannot call signed action: [delete]');
@@ -31,37 +38,44 @@ class UnitTest extends \Tests\TestCase
             {
                 $this->result = $id;
             }
-        })
-            ->call('delete', 5);
+        })->call('delete', 5);
     }
 
-    public function test_can_call_signed_method_with_valid_signature()
+    public function test_allows_non_signed_methods()
     {
         LivewireStrict::signedActions(components: 'WireElements\*');
 
-        $component = Livewire::test(new class extends TestSignedComponent
+        Livewire::test(new class extends TestSignedComponent
+        {
+            public function save()
+            {
+                $this->result = 'saved';
+            }
+        })
+            ->call('save')
+            ->assertSet('result', 'saved');
+    }
+
+    public function test_signed_methods_work_normally_when_feature_disabled()
+    {
+        Livewire::test(new class extends TestSignedComponent
         {
             #[Signed]
             public function delete(int $id)
             {
                 $this->result = $id;
             }
-        });
-
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
-
-        $component->call('__callSigned', $payload)
+        })
+            ->call('delete', 5)
             ->assertSet('result', 5);
     }
 
-    public function test_cant_call_signed_method_with_tampered_params()
-    {
-        $this->expectException(InvalidSignedActionException::class);
+    // ──────────────────────────────────────────────────────────
+    //  Core: valid signed payloads execute the method
+    // ──────────────────────────────────────────────────────────
 
+    public function test_executes_signed_method_with_valid_payload()
+    {
         LivewireStrict::signedActions(components: 'WireElements\*');
 
         $component = Livewire::test(new class extends TestSignedComponent
@@ -73,21 +87,38 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        // Generate valid payload then tamper with params
-        $validPayload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        $decoded = json_decode(base64_decode($validPayload), true);
-        $decoded['params'] = [999];
-        $tamperedPayload = base64_encode(json_encode($decoded));
-
-        $component->call('__callSigned', $tamperedPayload);
+        $component
+            ->call('__callSigned', $payload->encode())
+            ->assertSet('result', 5);
     }
 
-    public function test_cant_call_signed_method_with_wrong_component_id()
+    public function test_executes_signed_method_without_parameters()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function archive()
+            {
+                $this->result = 'archived';
+            }
+        });
+
+        $payload = SignedPayload::forComponent($component->instance(), 'archive');
+
+        $component
+            ->call('__callSigned', $payload->encode())
+            ->assertSet('result', 'archived');
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  Security: tampered & invalid payloads
+    // ──────────────────────────────────────────────────────────
+
+    public function test_rejects_tampered_params()
     {
         $this->expectException(InvalidSignedActionException::class);
 
@@ -102,75 +133,33 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $payload = SupportSignedActions::generateSignedPayload(
-            'wrong-component-id',
-            'delete',
-            5
-        );
+        $encoded = SignedPayload::forComponent($component->instance(), 'delete', 5)->encode();
+
+        $decoded = json_decode(base64_decode($encoded), true);
+        $decoded['params'] = [999];
+        $tampered = base64_encode(json_encode($decoded));
+
+        $component->call('__callSigned', $tampered);
+    }
+
+    public function test_rejects_wrong_component_id()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = (new SignedPayload('wrong-id', 'delete', [5]))->encode();
 
         $component->call('__callSigned', $payload);
-    }
-
-    public function test_can_call_non_signed_method_when_feature_enabled()
-    {
-        LivewireStrict::signedActions(components: 'WireElements\*');
-
-        Livewire::test(new class extends TestSignedComponent
-        {
-            public function regularMethod()
-            {
-                $this->result = 'regular';
-            }
-        })
-            ->call('regularMethod')
-            ->assertSet('result', 'regular');
-    }
-
-    public function test_signed_methods_work_when_feature_disabled()
-    {
-        Livewire::test(new class extends TestSignedComponent
-        {
-            #[Signed]
-            public function delete(int $id)
-            {
-                $this->result = $id;
-            }
-        })
-            ->call('delete', 5)
-            ->assertSet('result', 5);
-    }
-
-    public function test_only_enabled_for_matching_namespace()
-    {
-        $this->expectException(InvalidSignedActionException::class);
-
-        LivewireStrict::signedActions(components: 'WireElements\*');
-
-        Livewire::test(new class extends SpecificSignedComponent
-        {
-            #[Signed]
-            public function delete(int $id)
-            {
-                $this->result = $id;
-            }
-        })
-            ->call('delete', 5);
-    }
-
-    public function test_it_ignores_other_namespaces()
-    {
-        LivewireStrict::signedActions(components: 'App\*');
-
-        Livewire::test(new class extends TestSignedComponent
-        {
-            #[Signed]
-            public function delete(int $id)
-            {
-                $this->result = $id;
-            }
-        })
-            ->call('delete', 5)
-            ->assertSet('result', 5);
     }
 
     public function test_rejects_malformed_payload()
@@ -187,11 +176,10 @@ class UnitTest extends \Tests\TestCase
             {
                 $this->result = $id;
             }
-        })
-            ->call('__callSigned', 'not-valid-base64-garbage');
+        })->call('__callSigned', 'not-valid-base64-garbage');
     }
 
-    public function test_rejects_signed_payload_on_component_without_signed_methods()
+    public function test_rejects_payload_targeting_non_signed_method()
     {
         $this->expectException(InvalidSignedActionException::class);
 
@@ -199,22 +187,58 @@ class UnitTest extends \Tests\TestCase
 
         $component = Livewire::test(new class extends TestSignedComponent
         {
-            public function regularMethod()
+            public function save()
             {
                 $this->result = 'should not run';
             }
         });
 
-        // Craft a valid-signature payload targeting a non-signed method
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'regularMethod'
-        );
+        $payload = (new SignedPayload($component->instance()->getId(), 'save'))->encode();
 
         $component->call('__callSigned', $payload);
     }
 
-    public function test_valid_payload_with_ttl_succeeds_before_expiry()
+    // ──────────────────────────────────────────────────────────
+    //  Component matching
+    // ──────────────────────────────────────────────────────────
+
+    public function test_enforces_for_matching_namespace()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        Livewire::test(new class extends SpecificSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        })->call('delete', 5);
+    }
+
+    public function test_ignores_non_matching_namespace()
+    {
+        LivewireStrict::signedActions(components: 'App\*');
+
+        Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        })
+            ->call('delete', 5)
+            ->assertSet('result', 5);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  TTL: global expiration
+    // ──────────────────────────────────────────────────────────
+
+    public function test_payload_with_ttl_succeeds_before_expiry()
     {
         LivewireStrict::signedActions(components: 'WireElements\*', ttl: 300);
 
@@ -227,13 +251,10 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        $component->call('__callSigned', $payload)
+        $component
+            ->call('__callSigned', $payload->encode())
             ->assertSet('result', 5);
     }
 
@@ -253,19 +274,14 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        // Travel forward in time past the TTL
         $this->travel(301)->seconds();
 
-        $component->call('__callSigned', $payload);
+        $component->call('__callSigned', $payload->encode());
     }
 
-    public function test_payload_without_ttl_does_not_expire()
+    public function test_payload_without_ttl_never_expires()
     {
         LivewireStrict::signedActions(components: 'WireElements\*');
 
@@ -278,16 +294,12 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        // Travel far forward — no TTL means no expiration
         $this->travel(7)->days();
 
-        $component->call('__callSigned', $payload)
+        $component
+            ->call('__callSigned', $payload->encode())
             ->assertSet('result', 5);
     }
 
@@ -306,24 +318,25 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $encoded = SignedPayload::forComponent($component->instance(), 'delete', 5)->encode();
 
-        // Tamper with expiry to extend it
-        $decoded = json_decode(base64_decode($payload), true);
+        $decoded = json_decode(base64_decode($encoded), true);
         $decoded['exp'] = time() + 99999;
-        $tamperedPayload = base64_encode(json_encode($decoded));
+        $tampered = base64_encode(json_encode($decoded));
 
         $this->travel(120)->seconds();
 
-        $component->call('__callSigned', $tamperedPayload);
+        $component->call('__callSigned', $tampered);
     }
 
-    public function test_per_method_ttl_overrides_global_ttl()
+    // ──────────────────────────────────────────────────────────
+    //  TTL: per-method overrides
+    // ──────────────────────────────────────────────────────────
+
+    public function test_per_method_ttl_overrides_global()
     {
+        $this->expectException(ExpiredSignedActionException::class);
+
         LivewireStrict::signedActions(components: 'WireElements\*', ttl: 300);
 
         $component = Livewire::test(new class extends TestSignedComponent
@@ -335,19 +348,12 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
-        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
-            $ttl,
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        // 61 seconds - past per-method TTL of 60, but within global TTL of 300
+        // 61s past per-method TTL of 60, but within global TTL of 300
         $this->travel(61)->seconds();
 
-        $this->expectException(ExpiredSignedActionException::class);
-        $component->call('__callSigned', $payload);
+        $component->call('__callSigned', $payload->encode());
     }
 
     public function test_per_method_ttl_succeeds_within_window()
@@ -363,23 +369,19 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
-        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
-            $ttl,
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        // 30 seconds - within per-method TTL of 60
         $this->travel(30)->seconds();
 
-        $component->call('__callSigned', $payload)
+        $component
+            ->call('__callSigned', $payload->encode())
             ->assertSet('result', 5);
     }
 
     public function test_method_without_per_method_ttl_uses_global()
     {
+        $this->expectException(ExpiredSignedActionException::class);
+
         LivewireStrict::signedActions(components: 'WireElements\*', ttl: 120);
 
         $component = Livewire::test(new class extends TestSignedComponent
@@ -391,22 +393,14 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
-        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
-            $ttl,
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        // 121 seconds - past global TTL of 120
         $this->travel(121)->seconds();
 
-        $this->expectException(ExpiredSignedActionException::class);
-        $component->call('__callSigned', $payload);
+        $component->call('__callSigned', $payload->encode());
     }
 
-    public function test_per_method_ttl_zero_disables_expiration_even_with_global_ttl()
+    public function test_per_method_ttl_zero_disables_expiration()
     {
         LivewireStrict::signedActions(components: 'WireElements\*', ttl: 60);
 
@@ -419,44 +413,18 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $ttl = SupportSignedActions::getMethodTtl($component->instance(), 'delete');
-        $this->assertNull($ttl, 'ttl: 0 should resolve to null (no expiration)');
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        $payload = SupportSignedActions::generateSignedPayloadWithTtl(
-            $ttl,
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
-
-        // Travel far into the future — should still work because ttl: 0 means no expiration
         $this->travel(9999)->seconds();
 
-        $component->call('__callSigned', $payload)
+        $component
+            ->call('__callSigned', $payload->encode())
             ->assertSet('result', 5);
     }
 
-    public function test_signed_method_with_no_parameters_works()
-    {
-        LivewireStrict::signedActions(components: 'WireElements\*');
-
-        $component = Livewire::test(new class extends TestSignedComponent
-        {
-            #[Signed]
-            public function archive()
-            {
-                $this->result = 'archived';
-            }
-        });
-
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'archive'
-        );
-
-        $component->call('__callSigned', $payload)
-            ->assertSet('result', 'archived');
-    }
+    // ──────────────────────────────────────────────────────────
+    //  TTL: validation
+    // ──────────────────────────────────────────────────────────
 
     public function test_negative_global_ttl_is_rejected()
     {
@@ -487,19 +455,160 @@ class UnitTest extends \Tests\TestCase
             }
         });
 
-        $payload = SupportSignedActions::generateSignedPayload(
-            $component->instance()->getId(),
-            'delete',
-            5
-        );
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
 
-        // Travel far into the future — ttl: 0 means no expiration
         $this->travel(9999)->seconds();
 
-        $component->call('__callSigned', $payload)
+        $component
+            ->call('__callSigned', $payload->encode())
             ->assertSet('result', 5);
     }
+
+    // ──────────────────────────────────────────────────────────
+    //  Edge cases
+    // ──────────────────────────────────────────────────────────
+
+    public function test_multiple_signed_methods_with_different_ttls()
+    {
+        $this->expectException(ExpiredSignedActionException::class);
+        $this->expectExceptionMessage('Signed action [quickAction] has expired.');
+
+        LivewireStrict::signedActions(components: 'WireElements\*', ttl: 300);
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed(ttl: 10)]
+            public function quickAction()
+            {
+                $this->result = 'quick';
+            }
+
+            #[Signed(ttl: 600)]
+            public function slowAction()
+            {
+                $this->result = 'slow';
+            }
+        });
+
+        $quickPayload = SignedPayload::forComponent($component->instance(), 'quickAction');
+        $slowPayload = SignedPayload::forComponent($component->instance(), 'slowAction');
+
+        $this->travel(15)->seconds();
+
+        // slowAction should still work (15s < 600s TTL)
+        $component
+            ->call('__callSigned', $slowPayload->encode())
+            ->assertSet('result', 'slow');
+
+        // quickAction should fail (15s > 10s TTL)
+        $component->call('__callSigned', $quickPayload->encode());
+    }
+
+    public function test_rejects_callSigned_with_non_string_param()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        })->call('__callSigned', 12345);
+    }
+
+    public function test_valid_payload_can_be_replayed()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            public int $counter = 0;
+
+            #[Signed]
+            public function increment()
+            {
+                $this->counter++;
+            }
+        });
+
+        $encoded = SignedPayload::forComponent($component->instance(), 'increment')->encode();
+
+        $component
+            ->call('__callSigned', $encoded)
+            ->assertSet('counter', 1)
+            ->call('__callSigned', $encoded)
+            ->assertSet('counter', 2)
+            ->call('__callSigned', $encoded)
+            ->assertSet('counter', 3);
+    }
+
+    public function test_missing_app_key_throws_runtime_exception()
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('No application key set.');
+
+        config()->set('app.key', null);
+
+        (new SignedPayload('test-id', 'delete', [5]))->encode();
+    }
+
+    public function test_rejects_component_defining_callSigned_method()
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('defines a __callSigned method');
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+
+            public function __callSigned()
+            {
+                // This collides with the internal hook
+            }
+        })->call('__callSigned', 'anything');
+    }
+
+    public function test_toAction_returns_wire_action_string()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = SignedPayload::forComponent($component->instance(), 'delete', 5);
+        $action = $payload->toAction();
+
+        $this->assertStringStartsWith("__callSigned('", $action);
+        $this->assertStringEndsWith("')", $action);
+
+        // The encoded payload inside should be verifiable
+        $encoded = substr($action, strlen("__callSigned('"), -strlen("')"));
+        $verified = SignedPayload::verify($encoded, $component->instance());
+
+        $this->assertSame('delete', $verified->method);
+        $this->assertSame([5], $verified->params);
+    }
 }
+
+// ──────────────────────────────────────────────────────────
+//  Test components
+// ──────────────────────────────────────────────────────────
 
 class TestSignedComponent extends Component
 {
@@ -511,6 +620,4 @@ class TestSignedComponent extends Component
     }
 }
 
-class SpecificSignedComponent extends TestSignedComponent
-{
-}
+class SpecificSignedComponent extends TestSignedComponent {}

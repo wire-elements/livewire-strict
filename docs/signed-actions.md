@@ -91,6 +91,12 @@ Replace inline method calls with the `@livewireAction` directive:
 | Tamper with expiration timestamp | ❌ HMAC verification fails |
 | Use expired payload | ❌ `ExpiredSignedActionException` thrown |
 
+> **Note:** Valid payloads can be replayed on the same component (e.g., clicking a button multiple times). This is intentional — Blade buttons render a fixed payload that must remain usable. Use TTL to limit the replay window.
+
+### Requirements
+
+Signed actions require a valid `APP_KEY` to be configured. If the key is missing, a `RuntimeException` is thrown immediately when encoding or verifying a payload.
+
 ## Payload Expiration
 
 Set a TTL to limit how long signed payloads remain valid:
@@ -102,8 +108,8 @@ LivewireStrict::signedActions(ttl: 300);
 // No expiration (default)
 LivewireStrict::signedActions();
 
-// Explicitly no expiration
-LivewireStrict::signedActions(ttl: Signed::NO_EXPIRATION);
+// Explicitly no expiration (0 is treated the same as null)
+LivewireStrict::signedActions(ttl: 0);
 ```
 
 With a TTL, payloads include a signed timestamp. After expiration, the action is rejected with an `ExpiredSignedActionException`. The timestamp is part of the HMAC, so attackers cannot extend it.
@@ -126,7 +132,7 @@ class OrderManager extends Component
     public function refund(int $orderId, int $amount) { ... }
 
     // No expiration, even if global TTL is set
-    #[Signed(ttl: Signed::NO_EXPIRATION)]
+    #[Signed(ttl: 0)]
     public function viewDetails(int $orderId) { ... }
 }
 ```

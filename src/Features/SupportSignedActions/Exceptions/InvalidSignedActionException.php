@@ -1,6 +1,6 @@
 <?php
 
-namespace WireElements\LivewireStrict\Features\SupportSignedActions;
+namespace WireElements\LivewireStrict\Features\SupportSignedActions\Exceptions;
 
 class InvalidSignedActionException extends \Exception
 {

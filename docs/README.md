@@ -77,3 +77,4 @@ LivewireStrict::lockProperties(components: [
 - PHP 8.1+
 - Laravel 10, 11, or later
 - Livewire 3.5+ or 4.0+
+- A valid `APP_KEY` (required for signed actions)

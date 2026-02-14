@@ -22,7 +22,7 @@ class LivewireStrictServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Blade::directive('livewireAction', function ($expression) {
-            return "<?php echo \\WireElements\\LivewireStrict\\Features\\SupportSignedActions\\SupportSignedActions::generateSignedActionForComponent(\$__livewire, $expression); ?>";
+            return "<?php echo \\WireElements\\LivewireStrict\\Features\\SupportSignedActions\\SignedPayload::forComponent(\$__livewire, $expression)->toAction(); ?>";
         });
     }
 }
