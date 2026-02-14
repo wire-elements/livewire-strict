@@ -578,6 +578,141 @@ class UnitTest extends \Tests\TestCase
         })->call('__callSigned', 'anything');
     }
 
+    // ──────────────────────────────────────────────────────────
+    //  Type-invalid payloads (regression: should not cause TypeError)
+    // ──────────────────────────────────────────────────────────
+
+    public function test_rejects_payload_with_non_string_method()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+        $this->expectExceptionMessage('Cannot call signed action. The payload is invalid.');
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = base64_encode(json_encode([
+            'id' => $component->instance()->getId(),
+            'method' => ['not', 'a', 'string'],
+            'params' => [5],
+            'sig' => 'irrelevant',
+        ]));
+
+        $component->call('__callSigned', $payload);
+    }
+
+    public function test_rejects_payload_with_array_sig()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+        $this->expectExceptionMessage('Cannot call signed action. The payload is invalid.');
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = base64_encode(json_encode([
+            'id' => $component->instance()->getId(),
+            'method' => 'delete',
+            'params' => [5],
+            'sig' => ['not', 'a', 'string'],
+        ]));
+
+        $component->call('__callSigned', $payload);
+    }
+
+    public function test_rejects_payload_with_non_array_params()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+        $this->expectExceptionMessage('Cannot call signed action. The payload is invalid.');
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = base64_encode(json_encode([
+            'id' => $component->instance()->getId(),
+            'method' => 'delete',
+            'params' => 'not-an-array',
+            'sig' => 'irrelevant',
+        ]));
+
+        $component->call('__callSigned', $payload);
+    }
+
+    public function test_rejects_payload_with_non_int_exp()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+        $this->expectExceptionMessage('Cannot call signed action. The payload is invalid.');
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = base64_encode(json_encode([
+            'id' => $component->instance()->getId(),
+            'method' => 'delete',
+            'params' => [5],
+            'exp' => 'not-an-int',
+            'sig' => 'irrelevant',
+        ]));
+
+        $component->call('__callSigned', $payload);
+    }
+
+    public function test_rejects_payload_with_non_scalar_id()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+        $this->expectExceptionMessage('Cannot call signed action. The payload is invalid.');
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = base64_encode(json_encode([
+            'id' => ['an', 'array'],
+            'method' => 'delete',
+            'params' => [5],
+            'sig' => 'irrelevant',
+        ]));
+
+        $component->call('__callSigned', $payload);
+    }
+
     public function test_toAction_returns_wire_action_string()
     {
         LivewireStrict::signedActions(components: 'WireElements\*');

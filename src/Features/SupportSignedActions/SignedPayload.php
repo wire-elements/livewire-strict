@@ -60,32 +60,47 @@ class SignedPayload
             InvalidSignedActionException::class,
         );
 
-        $method = $decoded['method'];
+        // Validate types of the decoded payload to avoid TypeError and ensure predictable failures.
+        $hasInvalidTypes = !is_scalar($decoded['id'])
+            || !is_scalar($decoded['method'])
+            || !is_scalar($decoded['sig'])
+            || !is_array($decoded['params'])
+            || (array_key_exists('exp', $decoded) && !is_int($decoded['exp']));
+
+        if ($hasInvalidTypes) {
+            throw new InvalidSignedActionException('');
+        }
+
+        $id = (string) $decoded['id'];
+        $method = (string) $decoded['method'];
+        $sig = (string) $decoded['sig'];
+        $params = $decoded['params'];
+        $exp = $decoded['exp'] ?? null;
 
         $payloadData = array_filter([
-            'id' => $decoded['id'],
+            'id' => $id,
             'method' => $method,
-            'params' => $decoded['params'],
-            'exp' => $decoded['exp'] ?? null,
+            'params' => $params,
+            'exp' => $exp,
         ], fn ($value) => $value !== null);
 
         $expectedSig = hash_hmac('sha256', json_encode($payloadData, self::JSON_FLAGS), self::signingKey());
 
-        throw_unless(hash_equals($expectedSig, $decoded['sig']), InvalidSignedActionException::class, $method);
+        throw_unless(hash_equals($expectedSig, $sig), InvalidSignedActionException::class, $method);
 
         throw_if(
-            isset($decoded['exp']) && Carbon::now()->timestamp > $decoded['exp'],
+            isset($exp) && Carbon::now()->timestamp > $exp,
             ExpiredSignedActionException::class,
             $method,
         );
 
-        throw_unless($decoded['id'] === $component->getId(), InvalidSignedActionException::class, $method);
+        throw_unless($id === $component->getId(), InvalidSignedActionException::class, $method);
 
         return new self(
-            componentId: $decoded['id'],
+            componentId: $id,
             method: $method,
-            params: $decoded['params'],
-            expiry: $decoded['exp'] ?? null,
+            params: $params,
+            expiry: $exp,
         );
     }
 
