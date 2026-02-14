@@ -76,7 +76,7 @@ Replace inline method calls with the `@livewireAction` directive:
 
 ## How It Works
 
-1. **At render time**, `@livewireAction` generates an HMAC-SHA256 signature over the method name, parameters, and component ID using your `APP_KEY`
+1. **At render time**, `@livewireAction` generates an HMAC-SHA256 signature over the method name, parameters, and component ID using a purpose-specific key derived from your `APP_KEY` (domain-separated so that other subsystems sharing the same key cannot produce cross-valid signatures)
 2. The signed payload is encoded as a base64 string and rendered as `__callSigned('eyJ...')`
 3. **When clicked**, the `SupportSignedActions` hook intercepts the call, verifies the HMAC, checks the component ID matches, and only then executes the method
 4. Direct calls to `#[Signed]` methods (e.g., `$wire.call('delete', 5)`) are **blocked**
@@ -91,11 +91,12 @@ Replace inline method calls with the `@livewireAction` directive:
 | Tamper with expiration timestamp | ❌ HMAC verification fails |
 | Use expired payload | ❌ `ExpiredSignedActionException` thrown |
 
-> **Note:** Valid payloads can be replayed on the same component (e.g., clicking a button multiple times). This is intentional — Blade buttons render a fixed payload that must remain usable. Use TTL to limit the replay window.
+> **Note:** Valid payloads can be replayed on the same component (e.g., clicking a button multiple times). This is intentional - Blade buttons render a fixed payload that must remain usable. Use TTL to limit the replay window.
 
 ### Requirements
 
-Signed actions require a valid `APP_KEY` to be configured. If the key is missing, a `RuntimeException` is thrown immediately when encoding or verifying a payload.
+- Signed actions require a valid `APP_KEY` to be configured. If the key is missing, a `RuntimeException` is thrown immediately when encoding or verifying a payload.
+- Components must **not** define their own `__callSigned()` method - this name is reserved by the signed-action hook. If a collision is detected, a `LogicException` is thrown.
 
 ## Payload Expiration
 
@@ -138,6 +139,8 @@ class OrderManager extends Component
 ```
 
 Per-method TTL takes precedence over the global TTL. If a method has no `ttl` parameter, the global TTL is used.
+
+Negative TTL values are rejected with an `InvalidArgumentException`, both at the global level and per-method level.
 
 **Choosing a TTL:** Consider how long a page stays open before a user interacts. For admin panels, 5-15 minutes is reasonable. For long-lived dashboards, use a longer TTL or disable expiration.
 

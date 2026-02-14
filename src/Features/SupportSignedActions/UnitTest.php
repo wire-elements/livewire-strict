@@ -739,6 +739,198 @@ class UnitTest extends \Tests\TestCase
         $this->assertSame('delete', $verified->method);
         $this->assertSame([5], $verified->params);
     }
+
+    // ──────────────────────────────────────────────────────────
+    //  Security: cross-system signature confusion
+    // ──────────────────────────────────────────────────────────
+
+    public function test_raw_app_key_hmac_does_not_validate_as_signed_payload()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        // Simulate a signature forged with the raw APP_KEY (no domain separation).
+        // This must NOT be accepted by verify().
+        $payloadData = [
+            'id' => $component->instance()->getId(),
+            'method' => 'delete',
+            'params' => [5],
+        ];
+        $rawSig = hash_hmac(
+            'sha256',
+            json_encode($payloadData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            config('app.key')
+        );
+        $forged = base64_encode(json_encode(array_merge($payloadData, ['sig' => $rawSig])));
+
+        $component->call('__callSigned', $forged);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    //  Security: payload with extra/unexpected fields
+    // ──────────────────────────────────────────────────────────
+
+    public function test_extra_fields_in_payload_are_silently_ignored()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        // Take a valid payload and inject an extra field (e.g., "admin": true).
+        // verify() re-derives the HMAC from only the canonical fields (id, method,
+        // params, exp), so the injected field is discarded. The sig still matches
+        // and the method executes. This is acceptable because the extra field is
+        // never used, but reviewers should be aware that additional JSON keys
+        // don't invalidate the payload.
+        $encoded = SignedPayload::forComponent($component->instance(), 'delete', 5)->encode();
+        $decoded = json_decode(base64_decode($encoded), true);
+        $decoded['admin'] = true;
+        $tampered = base64_encode(json_encode($decoded));
+
+        $component
+            ->call('__callSigned', $tampered)
+            ->assertSet('result', 5);
+    }
+
+    public function test_rejects_payload_with_empty_string_method()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        // Forge a payload with an empty method name. The HMAC is computed properly
+        // but methodIsSigned('') should return false, blocking execution.
+        $payload = new SignedPayload($component->instance()->getId(), '', [5]);
+        $component->call('__callSigned', $payload->encode());
+    }
+
+    public function test_rejects_completely_empty_base64_payload()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        })->call('__callSigned', base64_encode(''));
+    }
+
+    public function test_rejects_payload_with_null_json_values()
+    {
+        $this->expectException(InvalidSignedActionException::class);
+
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $payload = base64_encode(json_encode([
+            'id' => null,
+            'method' => null,
+            'params' => null,
+            'sig' => null,
+        ]));
+
+        $component->call('__callSigned', $payload);
+    }
+
+    public function test_different_app_keys_produce_different_signatures()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        $encoded1 = SignedPayload::forComponent($component->instance(), 'delete', 5)->encode();
+
+        // Change the app key
+        $originalKey = config('app.key');
+        config()->set('app.key', 'base64:' . base64_encode(random_bytes(32)));
+
+        $encoded2 = SignedPayload::forComponent($component->instance(), 'delete', 5)->encode();
+
+        // Restore original key
+        config()->set('app.key', $originalKey);
+
+        // Payloads signed with different keys must differ
+        $this->assertNotSame($encoded1, $encoded2);
+
+        // A payload signed with the wrong key must be rejected
+        $this->expectException(InvalidSignedActionException::class);
+        $component->call('__callSigned', $encoded2);
+    }
+
+    public function test_feature_can_be_disabled_at_runtime()
+    {
+        LivewireStrict::signedActions(components: 'WireElements\*');
+
+        $component = Livewire::test(new class extends TestSignedComponent
+        {
+            #[Signed]
+            public function delete(int $id)
+            {
+                $this->result = $id;
+            }
+        });
+
+        // Direct call should be blocked while enabled
+        try {
+            $component->call('delete', 5);
+            $this->fail('Expected InvalidSignedActionException');
+        } catch (InvalidSignedActionException $e) {
+            // expected
+        }
+
+        // Disabling at runtime bypasses all protection — flag for audit
+        SupportSignedActions::$enabled = false;
+
+        $component
+            ->call('delete', 5)
+            ->assertSet('result', 5);
+    }
 }
 
 // ──────────────────────────────────────────────────────────

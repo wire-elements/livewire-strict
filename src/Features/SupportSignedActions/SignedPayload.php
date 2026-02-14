@@ -21,13 +21,17 @@ class SignedPayload
     /**
      * Get the application signing key, ensuring it is set.
      *
+     * Derives a purpose-specific key via HMAC to provide domain separation.
+     * This prevents cross-system signature confusion if other subsystems
+     * also use the raw APP_KEY with hash_hmac('sha256', ...).
+     *
      * @throws \RuntimeException
      */
     private static function signingKey(): string
     {
         throw_unless(config('app.key'), \RuntimeException::class, 'No application key set. Signed actions require an APP_KEY to be configured.');
 
-        return config('app.key');
+        return hash_hmac('sha256', 'livewire-strict:signed-actions', config('app.key'));
     }
 
     /**
